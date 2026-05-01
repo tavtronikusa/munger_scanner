@@ -19,6 +19,15 @@ if st.button("Ejecutar Análisis"):
             info = stock.info
             financials = stock.financials
             cashflow = stock.cashflow
+
+            # --- NUEVA SECCIÓN: RESUMEN DE ACTIVIDAD ---
+            st.subheader(f"Acerca de {info.get('longName', ticker_input)}")
+            resumen = info.get('longBusinessSummary', "No hay un resumen disponible para este ticker.")
+            
+            # Mostramos solo las primeras 500 caracteres con un botón para leer más
+            with st.expander("Ver descripción completa de la empresa"):
+                st.write(resumen)
+            st.markdown("---")
             
             # 1. INCOME STATEMENT (35 pts)
             gm = info.get('grossMargins', 0)
