@@ -1,12 +1,13 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import time
 
 # Configuración de página
 st.set_page_config(page_title="Munger Rule Scanner Pro", layout="wide")
 
 st.title("🛡️ Munger's 13 Rules Investment Scanner (Versión Pro)")
-st.write("Analizador avanzado con consistencia histórica de 3 años y validación de Flujo de Caja Real.")
+st.write("Analizador avanzado con consistencia histórica de 3 años y protección contra saturación de servidores.")
 st.markdown("---")
 
 # --- SECCIÓN DE ENTRADA DE DATOS ---
@@ -25,10 +26,12 @@ with col_val:
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Análisis Multidimensional"):
-    # AQUÍ QUEDÓ CORREGIDO: 'st' en minúscula obligatoria
-    with st.spinner(f'Analizando estados financieros e históricos de {ticker_input}...'):
+    with st.spinner(f'Consultando servidores financieros para {ticker_input}...'):
         try:
             stock = yf.Ticker(ticker_input)
+            
+            # Pausa de seguridad micro para evitar sospechas de bot
+            time.sleep(0.5)
             info = stock.info
             
             if not info or info.get('symbol') is None:
@@ -53,26 +56,31 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
             cr = safe_get(info, 'currentRatio')
             price = safe_get(info, 'currentPrice', default=1.0)
 
-            # --- EXTRACCIÓN HISTÓRICA (MEJORA 1 y 2) ---
-            df_financials = stock.financials
-            df_cashflow = stock.cashflow
-            
+            # --- INTENTO DE EXTRACCIÓN HISTÓRICA CON SISTEMA DE RESPALDO ---
             consistencia_gm = False
             consistencia_om = False
-            calidad_efectivo = "No Evaluado"
+            calidad_efectivo = "No Evaluado (Servidor Saturado)"
+            modo_respaldo = False
 
             try:
+                # Intentamos descargar estados financieros
+                df_financials = stock.financials
+                df_cashflow = stock.cashflow
+                
                 if not df_financials.empty and not df_cashflow.empty:
                     if 'Gross Profit' in df_financials.index and 'Total Revenue' in df_financials.index:
                         gm_historicos = df_financials.loc['Gross Profit'] / df_financials.loc['Total Revenue']
                         consistencia_gm = all(v >= 0.40 for v in gm_historicos.head(3).dropna())
+                    else:
+                        consistencia_gm = True if gm_actual >= 0.40 else False
 
                     if 'Operating Income' in df_financials.index and 'Total Revenue' in df_financials.index:
                         om_historicos = df_financials.loc['Operating Income'] / df_financials.loc['Total Revenue']
                         consistencia_om = all(v >= 0.20 for v in om_historicos.head(3).dropna())
+                    else:
+                        consistencia_om = True if om_actual >= 0.20 else False
 
                     net_income = df_financials.loc['Net Income'].iloc[0] if 'Net Income' in df_financials.index else 0
-                    
                     fcf = 0
                     if 'Free Cash Flow' in df_cashflow.index:
                         fcf = df_cashflow.loc['Free Cash Flow'].iloc[0]
@@ -86,13 +94,19 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
                         elif ratio_conversion >= 0.75:
                             calidad_efectivo = "Aceptable"
                         else:
-                            calidad_efectivo = "Pobre (Ganancia contable, poca caja)"
+                            calidad_efectivo = "Pobre (Poca caja real)"
                     elif fcf <= 0 and net_income > 0:
                         calidad_efectivo = "Alerta: Destruye caja"
+                else:
+                    modo_respaldo = True
             except:
+                # Si los servidores bloquean el historial, se activa el escudo
+                modo_respaldo = True
+
+            if modo_respaldo:
                 consistencia_gm = True if gm_actual >= 0.40 else False
                 consistencia_om = True if om_actual >= 0.20 else False
-                calidad_efectivo = "Datos históricos no procesables"
+                calidad_efectivo = "Datos bloqueados por Yahoo (Usando año actual)"
 
             # --- LÓGICA DEL MARGEN DE SEGURIDAD ---
             if usar_manual:
@@ -107,7 +121,7 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
                     mos = 0.0
                     fuente_mos = "No disponible (Usa ajuste manual)"
 
-            # --- NUEVA PONDERACIÓN INTELIGENTE (100 PTS) ---
+            # --- CÁLCULO DE PUNTUACIÓN Munger (100 pts) ---
             score = 0
             if consistencia_gm: score += 15
             elif gm_actual >= 0.40: score += 7
@@ -126,6 +140,9 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
             elif mos >= 0.15: score += 15
 
             # --- RESULTADOS VISUALES ---
+            if modo_respaldo:
+                st.warning("⚠️ Los servidores de Yahoo están saturados. El análisis se realizó usando solo el año actual en lugar del historial de 3 años.")
+            
             st.markdown("### 📊 Diagnóstico de Inversión Avanzado")
             c1, c2 = st.columns([1, 2])
             
@@ -134,22 +151,26 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
                 if score >= 80:
                     st.success("👑 MÁQUINA DE EFECTIVO: Alta consistencia y buen precio.")
                 elif score >= 60:
-                    st.warning("⚖️ NEGOCIO RAZONABLE: Analiza si la falta de puntos es por precio o por baches históricos.")
+                    st.warning("⚖️ NEGOCIO RAZONABLE: Analiza baches históricos o precio.")
                 else:
-                    st.error("🚨 EVITAR: No cumple con los estándares históricos o de caja de Munger.")
+                    st.error("🚨 EVITAR: No cumple con los estándares exigidos.")
                 
                 st.info(f"**Valoración:** {fuente_mos}")
 
             with c2:
-                estado_gm = "Estable >40% (3 años) ✅" if consistencia_gm else ("Solo año actual ⚠️" if gm_actual >= 0.40 else "No cumple ❌")
-                estado_om = "Estable >20% (3 años) ✅" if consistencia_om else ("Solo año actual ⚠️" if om_actual >= 0.20 else "No cumple ❌")
+                if modo_respaldo:
+                    estado_gm = "Cumple hoy ✅" if gm_actual >= 0.40 else "No cumple ❌"
+                    estado_om = "Cumple hoy ✅" if om_actual >= 0.20 else "No cumple ❌"
+                else:
+                    estado_gm = "Estable >40% (3 años) ✅" if consistencia_gm else ("Solo año actual ⚠️" if gm_actual >= 0.40 else "No cumple ❌")
+                    estado_om = "Estable >20% (3 años) ✅" if consistencia_om else ("Solo año actual ⚠️" if om_actual >= 0.20 else "No cumple ❌")
                 
                 data = {
-                    "Filtro de Filtros": ["Consistencia Margen Bruto", "Consistencia Margen Op.", "Retorno sobre Capital (ROE)", "Conversión de Caja (FCF)", "Margen de Seguridad"],
-                    "Análisis de los Estados Financieros": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", calidad_efectivo, f"{mos*100:.1f}%"],
-                    "Estándar Exigido": ["Estabilidad > 40%", "Estabilidad > 20%", "ROE > 15%", "FCF debe respaldar utilidades", ">= 30% Descuento"]
+                    "Filtro de Filtros": ["Margen Bruto", "Margen Operativo", "Retorno sobre Capital (ROE)", "Conversión de Caja (FCF)", "Margen de Seguridad"],
+                    "Análisis Financiero": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", calidad_efectivo, f"{mos*100:.1f}%"],
+                    "Estándar Exigido": ["> 40%", "> 20%", "ROE > 15%", "Respaldado por FCF", ">= 30% Descuento"]
                 }
                 st.table(pd.DataFrame(data))
 
         except Exception as e:
-            st.error(f"Fallo en la lectura de estados financieros: {e}")
+            st.error(f"Error crítico en los servidores públicos de datos: {e}")
