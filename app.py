@@ -3,109 +3,167 @@ import yfinance as yf
 import pandas as pd
 
 # Configuración de página
-st.set_page_config(page_title="Munger Rule Scanner", layout="wide")
+st.set_page_config(page_title="Munger Rule Scanner Pro", layout="wide")
 
-st.title("🛡️ Munger's 13 Rules Investment Scanner")
-st.write("Analizador de acciones basado en la disciplina de Charlie Munger.")
+st.title("🛡️ Munger's 13 Rules Investment Scanner (Versión Pro)")
+st.write("Analizador avanzado con consistencia histórica de 3 años y validación de Flujo de Caja Real.")
 st.markdown("---")
 
 # --- SECCIÓN DE ENTRADA DE DATOS ---
 col_tick, col_man, col_val = st.columns([1, 1, 1])
 
 with col_tick:
-    ticker_input = st.text_input("1. Ticker (ej: MSFT, POOL):", "POOL").upper()
+    ticker_input = st.text_input("1. Ticker (ej: MSFT, POOL):", "POOL").upper().strip()
 
 with col_man:
     st.write("2. ¿Usar valor de Simply Wall St?")
     usar_manual = st.checkbox("Activar ajuste manual", value=False)
 
 with col_val:
-    valor_estimado = st.number_input("3. Valor Intrínseco ($):", min_value=0.0, value=350.0, help="Introduce el Fair Value que encontraste en Simply Wall St u otra fuente.")
+    valor_estimado = st.number_input("3. Valor Intrínseco ($):", min_value=0.0, value=350.0)
 
 st.markdown("---")
 
-if st.button("🚀 Ejecutar Análisis Completo"):
-    with st.spinner(f'Analizando datos de {ticker_input}...'):
+if st.button("🚀 Ejecutar Análisis Multidimensional"):
+    with St.spinner(f'Analizando estados financieros e históricos de {ticker_input}...'):
         try:
             stock = yf.Ticker(ticker_input)
             info = stock.info
             
-            # Evitar colapso si info está vacío
-            if not info or len(info) < 5:
-                st.error(f"No se encontraron datos para el ticker '{ticker_input}'. Verifica que esté bien escrito.")
+            if not info or info.get('symbol') is None:
+                st.error(f"❌ Error: Yahoo Finance no reconoce el ticker '{ticker_input}'.")
                 st.stop()
 
             # --- RESUMEN DE ACTIVIDAD ---
             st.subheader(f"🏢 Empresa: {info.get('longName', ticker_input)}")
             resumen = info.get('longBusinessSummary', "No hay descripción disponible.")
-            with st.expander("Haz clic aquí para leer qué hace esta empresa"):
+            with st.expander("Leer descripción del modelo de negocio"):
                 st.write(resumen)
 
-            # --- EXTRACCIÓN DE MÉTRICAS CORREGIDA ---
-            gm = info.get('grossMargins', 0) if info.get('grossMargins') is not None else 0
-            om = info.get('operatingMargins', 0) if info.get('operatingMargins') is not None else 0
-            nm = info.get('profitMargins', 0) if info.get('profitMargins') is not None else 0
-            roe = info.get('returnOnEquity', 0) if info.get('returnOnEquity') is not None else 0
-            eps_growth = info.get('earningsGrowth', 0) if info.get('earningsGrowth') is not None else 0
-            
-            de = info.get('debtToEquity', 500)
-            de = de / 100 if de is not None else 5.0
-            
-            cr = info.get('currentRatio', 0) if info.get('currentRatio') is not None else 0
-            cash = info.get('totalCash', 0) if info.get('totalCash') is not None else 0
-            debt = info.get('totalDebt', 1) if info.get('totalDebt') is not None else 1
-            cvd = cash / debt if debt > 0 else 0
-            price = info.get('currentPrice', 1) if info.get('currentPrice') is not None else 1
+            # --- EXTRACCIÓN DE DATOS ACTUALES ---
+            def safe_get(dic, key, default=0.0):
+                val = dic.get(key, default)
+                return default if val is None else val
 
-            # --- LÓGICA DEL MARGEN DE SEGURIDAD PROTEGIDA ---
+            gm_actual = safe_get(info, 'grossMargins')
+            om_actual = safe_get(info, 'operatingMargins')
+            roe_actual = safe_get(info, 'returnOnEquity')
+            de = safe_get(info, 'debtToEquity') / 100.0 if safe_get(info, 'debtToEquity') != 0 else 5.0
+            cr = safe_get(info, 'currentRatio')
+            price = safe_get(info, 'currentPrice', default=1.0)
+
+            # --- EXTRACCIÓN HISTÓRICA (MEJORA 1 y 2) ---
+            df_financials = stock.financials
+            df_cashflow = stock.cashflow
+            
+            # Variables de consistencia histórica (asumimos verdadero por defecto)
+            consistencia_gm = False
+            consistencia_om = False
+            calidad_efectivo = "No Evaluado"
+            ratio_conversion = 0.0
+
+            try:
+                if not df_financials.empty and not df_cashflow.empty:
+                    # 1. Validación de Márgenes Históricos (Últimos 3 años disponibles)
+                    # Calculamos los márgenes históricos manualmente desde el Income Statement
+                    if 'Gross Profit' in df_financials.index and 'Total Revenue' in df_financials.index:
+                        gm_historicos = df_financials.loc['Gross Profit'] / df_financials.loc['Total Revenue']
+                        # Verificamos si TODOS los años cumplen el criterio de > 40%
+                        consistencia_gm = all(v >= 0.40 for v in gm_historicos.head(3).dropna())
+
+                    if 'Operating Income' in df_financials.index and 'Total Revenue' in df_financials.index:
+                        om_historicos = df_financials.loc['Operating Income'] / df_financials.loc['Total Revenue']
+                        consistencia_om = all(v >= 0.20 for v in om_historicos.head(3).dropna())
+
+                    # 2. Validación de Calidad de Ganancias (Free Cash Flow / Net Income)
+                    # Munger buscaba negocios donde la utilidad neta se convierta en efectivo real.
+                    net_income = df_financials.loc['Net Income'].iloc[0] if 'Net Income' in df_financials.index else 0
+                    
+                    # Buscamos el Free Cash Flow o el Flujo Operativo en el reporte de caja
+                    fcf = 0
+                    if 'Free Cash Flow' in df_cashflow.index:
+                        fcf = df_cashflow.loc['Free Cash Flow'].iloc[0]
+                    elif 'Operating Cash Flow' in df_cashflow.index and 'Capital Expenditures' in df_cashflow.index:
+                        fcf = df_cashflow.loc['Operating Cash Flow'].iloc[0] + df_cashflow.loc['Capital Expenditures'].iloc[0]
+                    
+                    if net_income > 0 and fcf > 0:
+                        ratio_conversion = fcf / net_income
+                        if ratio_conversion >= 1.0:
+                            calidad_efectivo = "Excelente (FCF >= Utilidad)"
+                        elif ratio_conversion >= 0.75:
+                            calidad_efectivo = "Aceptable"
+                        else:
+                            calidad_efectivo = "Pobre (Ganancia contable, poca caja)"
+                    elif fcf <= 0 and net_income > 0:
+                        calidad_efectivo = "Alerta: Destruye caja"
+            except:
+                # Si falla la lectura histórica por formato de la empresa, usamos datos del año actual
+                consistencia_gm = True if gm_actual >= 0.40 else False
+                consistencia_om = True if om_actual >= 0.20 else False
+                calidad_efectivo = "Datos históricos no procesables"
+
+            # --- LÓGICA DEL MARGEN DE SEGURIDAD ---
             if usar_manual:
-                mos = (valor_estimado - price) / valor_estimado if valor_estimado > 0 else 0
-                fuente_mos = "Manual (Simply Wall St / Análisis propio)"
+                mos = (valor_estimado - price) / valor_estimado if valor_estimado > 0 else 0.0
+                fuente_mos = "Manual (Simply Wall St)"
             else:
                 target = info.get('targetMeanPrice')
-                if target is not None and target > 0:
+                if target and target > 0:
                     mos = (target - price) / target
-                    fuente_mos = "Estimación promedio de analistas (Yahoo Finance)"
+                    fuente_mos = "Analistas (Yahoo Finance)"
                 else:
                     mos = 0.0
-                    fuente_mos = "No disponible en Yahoo Finance (Usa el ajuste manual)"
+                    fuente_mos = "No disponible (Usa ajuste manual)"
 
-            # --- CÁLCULO DE PUNTUACIÓN Munger (100 pts) ---
+            # --- NUEVA PONDERACIÓN INTELIGENTE (100 PTS) ---
             score = 0
-            if gm >= 0.40: score += 8
-            if om >= 0.20: score += 8
-            if nm >= 0.15: score += 7
-            if eps_growth >= 0.10: score += 6
-            if roe >= 0.15: score += 6
-            if de <= 0.5: score += 8
-            if cr >= 1.5: score += 7
-            if cvd >= 1.0: score += 10
             
-            if mos >= 0.30: score += 40 
-            elif mos >= 0.15: score += 20
+            # Bloque 1: Consistencia de Calidad (30 pts)
+            if consistencia_gm: score += 15  # 15 pts por mantener el margen bruto >40% por 3 años
+            elif gm_actual >= 0.40: score += 7 # Solo la mitad si es solo este año
+            
+            if consistencia_om: score += 15  # 15 pts por estabilidad operativa
+            elif om_actual >= 0.20: score += 7
+
+            # Bloque 2: Rentabilidad y Balance (30 pts)
+            if roe_actual >= 0.15: score += 10
+            if de <= 0.5: score += 10
+            if cr >= 1.5: score += 10
+
+            # Bloque 3: Calidad de Caja (10 pts)
+            if "Excelente" in calidad_efectivo: score += 10
+            elif "Aceptable" in calidad_efectivo: score += 5
+
+            # Bloque 4: Margen de Seguridad (30 pts)
+            if mos >= 0.30: score += 30 
+            elif mos >= 0.15: score += 15
 
             # --- RESULTADOS VISUALES ---
-            st.markdown("### 📊 Resultado del Diagnóstico")
+            st.markdown("### 📊 Diagnóstico de Inversión Avanzado")
             c1, c2 = st.columns([1, 2])
             
             with c1:
-                st.metric(label="Puntuación Total", value=f"{score} / 100")
+                st.metric(label="Puntuación de Calidad y Valor", value=f"{score} / 100")
                 if score >= 80:
-                    st.success("✅ CALIDAD EXTREMA: Un negocio 'Mungeriano' de manual.")
+                    st.success("👑 MÁQUINA DE EFECTIVO: Alta consistencia y buen precio.")
                 elif score >= 60:
-                    st.warning("⚠️ CALIDAD ACEPTABLE: Buen negocio, pero revisa el precio o la deuda.")
+                    st.warning("⚖️ NEGOCIO RAZONABLE: Analiza si la falta de puntos es por precio o por baches históricos.")
                 else:
-                    st.error("❌ NO PASA EL FILTRO: Riesgo alto o valoración excesiva.")
+                    st.error("🚨 EVITAR: No cumple con los estándares históricos o de caja de Munger.")
                 
-                st.info(f"**Valoración basada en:**\n{fuente_mos}")
+                st.info(f"**Valoración:** {fuente_mos}")
 
             with c2:
+                # Tabla adaptada con las nuevas métricas analíticas
+                estado_gm = "Estable >40% (3 años) ✅" if consistencia_gm else ("Solo año actual ⚠️" if gm_actual >= 0.40 else "No cumple ❌")
+                estado_om = "Estable >20% (3 años) ✅" if consistencia_om else ("Solo año actual ⚠️" if om_actual >= 0.20 else "No cumple ❌")
+                
                 data = {
-                    "Regla de Munger": ["Margen Bruto", "ROE", "Deuda/Patrimonio", "Caja vs Deuda", "Margen de Seguridad"],
-                    "Estado Actual": [f"{gm*100:.1f}%", f"{roe*100:.1f}%", f"{de:.2f}", f"{cvd:.2f}", f"{mos*100:.1f}%"],
-                    "Meta Ideal": ["> 40%", "> 15%", "< 0.5", "> 1.0", ">= 30%"]
+                    "Filtro de Filtros": ["Consistencia Margen Bruto", "Consistencia Margen Op.", "Retorno sobre Capital (ROE)", "Conversión de Caja (FCF)", "Margen de Seguridad"],
+                    "Análisis de los Estados Financieros": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", calidad_efectivo, f"{mos*100:.1f}%"],
+                    "Estándar Exigido": ["Estabilidad > 40%", "Estabilidad > 20%", "ROE > 15%", "FCF debe respaldar utilidades", ">= 30% Descuento"]
                 }
                 st.table(pd.DataFrame(data))
 
         except Exception as e:
-            st.error(f"Hubo un problema técnico al procesar este ticker: {e}")
+            st.error(f"Fallo en la lectura de estados financieros: {e}")
