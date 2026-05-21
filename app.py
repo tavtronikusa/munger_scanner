@@ -16,8 +16,7 @@ with col_tick:
     ticker_input = st.text_input("1. Ticker (ej: MSFT, POOL):", "MSFT").upper().strip()
 
 with col_key:
-    api_key = st.text_input("🔑 Introduce tu FMP API Key:", type="password", help="Consigue tu clave gratis en Financial Modeling Prep")
-
+    api_key = ZxslgFPWNzjUijxtAvVRBcJGwGJ5dJRT
 with col_man:
     st.write("3. ¿Ajuste manual?")
     usar_manual = st.checkbox("Activar", value=False)
