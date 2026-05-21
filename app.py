@@ -25,7 +25,7 @@ with col_val:
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Análisis Multidimensional"):
-    with St.spinner(f'Analizando estados financieros e históricos de {ticker_input}...'):
+   with St.spinner(f'Analizando estados financieros e históricos de {ticker_input}...'):
         try:
             stock = yf.Ticker(ticker_input)
             info = stock.info
