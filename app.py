@@ -25,7 +25,8 @@ with col_val:
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Análisis Multidimensional"):
-   with St.spinner(f'Analizando estados financieros e históricos de {ticker_input}...'):
+    # AQUÍ QUEDÓ CORREGIDO: 'st' en minúscula obligatoria
+    with st.spinner(f'Analizando estados financieros e históricos de {ticker_input}...'):
         try:
             stock = yf.Ticker(ticker_input)
             info = stock.info
@@ -56,30 +57,22 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
             df_financials = stock.financials
             df_cashflow = stock.cashflow
             
-            # Variables de consistencia histórica (asumimos verdadero por defecto)
             consistencia_gm = False
             consistencia_om = False
             calidad_efectivo = "No Evaluado"
-            ratio_conversion = 0.0
 
             try:
                 if not df_financials.empty and not df_cashflow.empty:
-                    # 1. Validación de Márgenes Históricos (Últimos 3 años disponibles)
-                    # Calculamos los márgenes históricos manualmente desde el Income Statement
                     if 'Gross Profit' in df_financials.index and 'Total Revenue' in df_financials.index:
                         gm_historicos = df_financials.loc['Gross Profit'] / df_financials.loc['Total Revenue']
-                        # Verificamos si TODOS los años cumplen el criterio de > 40%
                         consistencia_gm = all(v >= 0.40 for v in gm_historicos.head(3).dropna())
 
                     if 'Operating Income' in df_financials.index and 'Total Revenue' in df_financials.index:
                         om_historicos = df_financials.loc['Operating Income'] / df_financials.loc['Total Revenue']
                         consistencia_om = all(v >= 0.20 for v in om_historicos.head(3).dropna())
 
-                    # 2. Validación de Calidad de Ganancias (Free Cash Flow / Net Income)
-                    # Munger buscaba negocios donde la utilidad neta se convierta en efectivo real.
                     net_income = df_financials.loc['Net Income'].iloc[0] if 'Net Income' in df_financials.index else 0
                     
-                    # Buscamos el Free Cash Flow o el Flujo Operativo en el reporte de caja
                     fcf = 0
                     if 'Free Cash Flow' in df_cashflow.index:
                         fcf = df_cashflow.loc['Free Cash Flow'].iloc[0]
@@ -97,7 +90,6 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
                     elif fcf <= 0 and net_income > 0:
                         calidad_efectivo = "Alerta: Destruye caja"
             except:
-                # Si falla la lectura histórica por formato de la empresa, usamos datos del año actual
                 consistencia_gm = True if gm_actual >= 0.40 else False
                 consistencia_om = True if om_actual >= 0.20 else False
                 calidad_efectivo = "Datos históricos no procesables"
@@ -117,24 +109,19 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
 
             # --- NUEVA PONDERACIÓN INTELIGENTE (100 PTS) ---
             score = 0
+            if consistencia_gm: score += 15
+            elif gm_actual >= 0.40: score += 7
             
-            # Bloque 1: Consistencia de Calidad (30 pts)
-            if consistencia_gm: score += 15  # 15 pts por mantener el margen bruto >40% por 3 años
-            elif gm_actual >= 0.40: score += 7 # Solo la mitad si es solo este año
-            
-            if consistencia_om: score += 15  # 15 pts por estabilidad operativa
+            if consistencia_om: score += 15
             elif om_actual >= 0.20: score += 7
 
-            # Bloque 2: Rentabilidad y Balance (30 pts)
             if roe_actual >= 0.15: score += 10
             if de <= 0.5: score += 10
             if cr >= 1.5: score += 10
 
-            # Bloque 3: Calidad de Caja (10 pts)
             if "Excelente" in calidad_efectivo: score += 10
             elif "Aceptable" in calidad_efectivo: score += 5
 
-            # Bloque 4: Margen de Seguridad (30 pts)
             if mos >= 0.30: score += 30 
             elif mos >= 0.15: score += 15
 
@@ -154,7 +141,6 @@ if st.button("🚀 Ejecutar Análisis Multidimensional"):
                 st.info(f"**Valoración:** {fuente_mos}")
 
             with c2:
-                # Tabla adaptada con las nuevas métricas analíticas
                 estado_gm = "Estable >40% (3 años) ✅" if consistencia_gm else ("Solo año actual ⚠️" if gm_actual >= 0.40 else "No cumple ❌")
                 estado_om = "Estable >20% (3 años) ✅" if consistencia_om else ("Solo año actual ⚠️" if om_actual >= 0.20 else "No cumple ❌")
                 
