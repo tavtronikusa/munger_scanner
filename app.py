@@ -1,13 +1,12 @@
 import streamlit as st
 from yahooquery import Ticker
 import pandas as pd
-import time
 
 # Configuración de página
 st.set_page_config(page_title="Munger Rule Scanner Pro", layout="wide")
 
-st.title("🛡️ Munger's 13 Rules Investment Scanner (Versión Pro - Anti Block)")
-st.write("Analizador avanzado con motor alternativo inmune a bloqueos de IP públicos.")
+st.title("🛡️ Munger's 13 Rules Investment Scanner (Versión Pro - Estable)")
+st.write("Analizador avanzado con consistencia histórica de 3 años y optimización de peticiones.")
 st.markdown("---")
 
 # --- SECCIÓN DE ENTRADA DE DATOS ---
@@ -26,23 +25,25 @@ with col_val:
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Análisis Seguro"):
-    with st.spinner(f'Extrayendo estados financieros mediante tunelización segura para {ticker_input}...'):
+    with st.spinner(f'Extrayendo datos financieros optimizados para {ticker_input}...'):
         try:
-            # Inicializamos el nuevo motor de YahooQuery
+            # Inicializamos el cliente
             client = Ticker(ticker_input)
             
-            # Extraemos los módulos necesarios en un solo viaje
-            all_modules = client.all_modules[ticker_input]
+            # CONSULTA QUIRÚRGICA: Pedimos solo los módulos estrictamente necesarios
+            modulos = client.get_modules(['summaryProfile', 'financialData', 'price', 'defaultKeyStatistics'])
             
-            if isinstance(all_modules, str) or not all_modules:
-                st.error(f"❌ El ticker '{ticker_input}' no existe o no devolvió datos válidos.")
+            # Verificación de datos válidos
+            if not modulos or ticker_input not in modulos or isinstance(modulos[ticker_input], str):
+                st.error(f"❌ Error: No se recibieron datos para '{ticker_input}'. Los servidores de datos públicos están congestionados. Intenta de nuevo en unos segundos.")
                 st.stop()
+                
+            datos_empresa = modulos[ticker_input]
 
-            # Bloques de datos específicos
-            summary_profile = all_modules.get('summaryProfile', {})
-            financial_data = all_modules.get('financialData', {})
-            default_key_statistics = all_modules.get('defaultKeyStatistics', {})
-            price_data = all_modules.get('price', {})
+            # Desglose de bloques de datos con seguridad
+            summary_profile = datos_empresa.get('summaryProfile', {})
+            financial_data = datos_empresa.get('financialData', {})
+            price_data = datos_empresa.get('price', {})
 
             # --- RESUMEN DE ACTIVIDAD ---
             st.subheader(f"🏢 Empresa: {price_data.get('longName', ticker_input)}")
@@ -50,13 +51,14 @@ if st.button("🚀 Ejecutar Análisis Seguro"):
             with st.expander("Leer descripción del modelo de negocio"):
                 st.write(resumen)
 
-            # --- EXTRACCIÓN DE DATOS ACTUALES ---
+            # --- FUNCIÓN AUXILIAR PARA EXTRAER NÚMEROS DE FORMA SEGURA ---
             def safe_num(val, default=0.0):
                 if val is None or isinstance(val, str): return default
                 if isinstance(val, dict): return val.get('raw', default)
                 return val
 
-            gm_actual = safe_num(all_modules.get('financialIndicatorSummary', {}).get('grossMargins'))
+            # Extracción de métricas actuales
+            gm_actual = safe_num(financial_data.get('grossMargins'))
             om_actual = safe_num(financial_data.get('operatingMargins'))
             roe_actual = safe_num(financial_data.get('returnOnEquity'))
             
@@ -69,27 +71,32 @@ if st.button("🚀 Ejecutar Análisis Seguro"):
             # --- ANÁLISIS HISTÓRICO Y FLUJO DE CAJA ---
             consistencia_gm = False
             consistencia_om = False
-            calidad_efectivo = "Excelente (Validado por FCF)"
+            calidad_efectivo = "Evaluando..."
 
             try:
+                # Descarga de históricos en formato DataFrame de pandas
                 df_inc = client.income_statement(frequency='a')
                 df_cash = client.cash_flow(frequency='a')
                 
+                # Validación de Consistencia del Margen Bruto (Últimos 3 años)
                 if df_inc is not None and not df_inc.empty and 'GrossProfit' in df_inc.columns and 'TotalRevenue' in df_inc.columns:
                     df_inc['gm_calc'] = df_inc['GrossProfit'] / df_inc['TotalRevenue']
-                    consistencia_gm = all(v >= 0.40 for v in df_inc['gm_calc'].tail(3))
+                    # Evaluamos los últimos 3 años disponibles registrando si cumplen el > 40%
+                    consistencia_gm = all(v >= 0.40 for v in df_inc['gm_calc'].tail(3).dropna())
                 else:
                     consistencia_gm = True if gm_actual >= 0.40 else False
 
+                # Validación de Consistencia del Margen Operativo (Últimos 3 años)
                 if df_inc is not None and not df_inc.empty and 'OperatingIncome' in df_inc.columns and 'TotalRevenue' in df_inc.columns:
                     df_inc['om_calc'] = df_inc['OperatingIncome'] / df_inc['TotalRevenue']
-                    consistencia_om = all(v >= 0.20 for v in df_inc['om_calc'].tail(3))
+                    consistencia_om = all(v >= 0.20 for v in df_inc['om_calc'].tail(3).dropna())
                 else:
                     consistencia_om = True if om_actual >= 0.20 else False
 
+                # Validación del Flujo de Caja Libre (FCF) vs Utilidad Neta (Calidad de ganancias)
                 if df_cash is not None and not df_cash.empty and 'FreeCashFlow' in df_cash.columns and 'NetIncome' in df_inc.columns:
-                    last_fcf = df_cash['FreeCashFlow'].iloc[-1]
-                    last_ni = df_inc['NetIncome'].iloc[-1]
+                    last_fcf = df_cash['FreeCashFlow'].dropna().iloc[-1] if len(df_cash['FreeCashFlow'].dropna()) > 0 else 0
+                    last_ni = df_inc['NetIncome'].dropna().iloc[-1] if len(df_inc['NetIncome'].dropna()) > 0 else 0
                     
                     if last_ni > 0 and last_fcf > 0:
                         ratio = last_fcf / last_ni
@@ -98,7 +105,10 @@ if st.button("🚀 Ejecutar Análisis Seguro"):
                         else: calidad_efectivo = "Pobre (Poca caja real)"
                     else:
                         calidad_efectivo = "Alerta: Brecha entre caja y ganancias"
+                else:
+                    calidad_efectivo = "Datos de FCF insuficientes"
             except:
+                # Respaldo en caso de error en la lectura de las tablas históricas
                 consistencia_gm = True if gm_actual >= 0.40 else False
                 consistencia_om = True if om_actual >= 0.20 else False
                 calidad_efectivo = "Datos históricos simplificados"
@@ -161,4 +171,4 @@ if st.button("🚀 Ejecutar Análisis Seguro"):
                 st.table(pd.DataFrame(data))
 
         except Exception as e:
-            st.error(f"Error en la consulta de datos alternativos: {e}")
+            st.error(f"Error general en el procesamiento: {e}")
