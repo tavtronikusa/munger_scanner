@@ -13,14 +13,14 @@ st.markdown("---")
 col_tick, col_man, col_val = st.columns([1, 1, 1])
 
 with col_tick:
-    ticker_input = st.text_input("1. Ticker (ej: MSFT, GOOGL):", "MSFT").upper()
+    ticker_input = st.text_input("1. Ticker (ej: MSFT, POOL):", "POOL").upper()
 
 with col_man:
     st.write("2. ¿Usar valor de Simply Wall St?")
     usar_manual = st.checkbox("Activar ajuste manual", value=False)
 
 with col_val:
-    valor_estimado = st.number_input("3. Valor Intrínseco ($):", min_value=0.0, value=100.0, help="Introduce el Fair Value que encontraste en Simply Wall St u otra fuente.")
+    valor_estimado = st.number_input("3. Valor Intrínseco ($):", min_value=0.0, value=350.0, help="Introduce el Fair Value que encontraste en Simply Wall St u otra fuente.")
 
 st.markdown("---")
 
@@ -30,47 +30,57 @@ if st.button("🚀 Ejecutar Análisis Completo"):
             stock = yf.Ticker(ticker_input)
             info = stock.info
             
+            # Evitar colapso si info está vacío
+            if not info or len(info) < 5:
+                st.error(f"No se encontraron datos para el ticker '{ticker_input}'. Verifica que esté bien escrito.")
+                st.stop()
+
             # --- RESUMEN DE ACTIVIDAD ---
             st.subheader(f"🏢 Empresa: {info.get('longName', ticker_input)}")
             resumen = info.get('longBusinessSummary', "No hay descripción disponible.")
             with st.expander("Haz clic aquí para leer qué hace esta empresa"):
                 st.write(resumen)
 
-            # --- EXTRACCIÓN DE MÉTRICAS (Basado en las 13 reglas) ---
-            gm = info.get('grossMargins', 0)
-            om = info.get('operatingMargins', 0)
-            nm = info.get('profitMargins', 0)
-            roe = info.get('returnOnEquity', 0)
-            eps_growth = info.get('earningsGrowth', 0)
-            de = info.get('debtToEquity', 500) / 100
-            cr = info.get('currentRatio', 0)
-            cash = info.get('totalCash', 0)
-            debt = info.get('totalDebt', 1)
-            cvd = cash / debt
-            price = info.get('currentPrice', 1)
+            # --- EXTRACCIÓN DE MÉTRICAS CORREGIDA ---
+            gm = info.get('grossMargins', 0) if info.get('grossMargins') is not None else 0
+            om = info.get('operatingMargins', 0) if info.get('operatingMargins') is not None else 0
+            nm = info.get('profitMargins', 0) if info.get('profitMargins') is not None else 0
+            roe = info.get('returnOnEquity', 0) if info.get('returnOnEquity') is not None else 0
+            eps_growth = info.get('earningsGrowth', 0) if info.get('earningsGrowth') is not None else 0
+            
+            de = info.get('debtToEquity', 500)
+            de = de / 100 if de is not None else 5.0
+            
+            cr = info.get('currentRatio', 0) if info.get('currentRatio') is not None else 0
+            cash = info.get('totalCash', 0) if info.get('totalCash') is not None else 0
+            debt = info.get('totalDebt', 1) if info.get('totalDebt') is not None else 1
+            cvd = cash / debt if debt > 0 else 0
+            price = info.get('currentPrice', 1) if info.get('currentPrice') is not None else 1
 
-            # --- LÓGICA DEL MARGEN DE SEGURIDAD ---
+            # --- LÓGICA DEL MARGEN DE SEGURIDAD PROTEGIDA ---
             if usar_manual:
                 mos = (valor_estimado - price) / valor_estimado if valor_estimado > 0 else 0
                 fuente_mos = "Manual (Simply Wall St / Análisis propio)"
             else:
-                target = info.get('targetMeanPrice', price)
-                mos = (target - price) / target if target > 0 else 0
-                fuente_mos = "Estimación promedio de analistas (Yahoo Finance)"
+                target = info.get('targetMeanPrice')
+                if target is not None and target > 0:
+                    mos = (target - price) / target
+                    fuente_mos = "Estimación promedio de analistas (Yahoo Finance)"
+                else:
+                    mos = 0.0
+                    fuente_mos = "No disponible en Yahoo Finance (Usa el ajuste manual)"
 
             # --- CÁLCULO DE PUNTUACIÓN Munger (100 pts) ---
             score = 0
-            # Rentabilidad (35 pts)
             if gm >= 0.40: score += 8
             if om >= 0.20: score += 8
             if nm >= 0.15: score += 7
             if eps_growth >= 0.10: score += 6
             if roe >= 0.15: score += 6
-            # Salud Financiera (25 pts)
             if de <= 0.5: score += 8
             if cr >= 1.5: score += 7
             if cvd >= 1.0: score += 10
-            # Margen de Seguridad (40 pts) - La regla de oro
+            
             if mos >= 0.30: score += 40 
             elif mos >= 0.15: score += 20
 
@@ -90,7 +100,6 @@ if st.button("🚀 Ejecutar Análisis Completo"):
                 st.info(f"**Valoración basada en:**\n{fuente_mos}")
 
             with c2:
-                # Tabla comparativa de reglas
                 data = {
                     "Regla de Munger": ["Margen Bruto", "ROE", "Deuda/Patrimonio", "Caja vs Deuda", "Margen de Seguridad"],
                     "Estado Actual": [f"{gm*100:.1f}%", f"{roe*100:.1f}%", f"{de:.2f}", f"{cvd:.2f}", f"{mos*100:.1f}%"],
@@ -99,5 +108,4 @@ if st.button("🚀 Ejecutar Análisis Completo"):
                 st.table(pd.DataFrame(data))
 
         except Exception as e:
-            st.error(f"Hubo un problema al obtener los datos. Asegúrate de que el ticker '{ticker_input}' sea correcto.")
-            st.info("Nota: Algunas empresas internacionales o muy pequeñas pueden no tener todos los datos públicos disponibles.")
+            st.error(f"Hubo un problema técnico al procesar este ticker: {e}")
