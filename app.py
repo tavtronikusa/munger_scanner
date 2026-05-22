@@ -139,4 +139,14 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
 
             with c2:
                 estado_gm = f"{gm_actual*100:.1f}% (Excelente ✅)" if gm_actual >= 0.40 else f"{gm_actual*100:.1f}% (Bajo ❌)"
-                estado_om = f"{
+                estado_om = f"{om_actual*100:.1f}% (Excelente ✅)" if om_actual >= 0.20 else f"{om_actual*100:.1f}% (Bajo ❌)"
+                
+                data = {
+                    "Filtro Automático": ["Margen Bruto (TTM)", "Margen Operativo (TTM)", "Retorno sobre Capital (ROE)", "Apalancamiento (Debt/Equity)", "Liquidez (Current Ratio)", "Validación de Caja"],
+                    "Métrica Real": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", f"{de:.2f}", f"{cr:.2f}", calidad_efectivo],
+                    "Criterio Munger": ["> 40%", "> 20%", "> 15%", "<= 0.50", ">= 1.50", "FCF debe respaldar utilidades"]
+                }
+                st.table(pd.DataFrame(data))
+
+        except Exception as e:
+            st.error(f"Error en el procesamiento de datos: {e}")
