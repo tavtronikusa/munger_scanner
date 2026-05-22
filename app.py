@@ -130,4 +130,10 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
                 
                 data = {
                     "Filtro Automático": ["Margen Bruto (TTM)", "Margen Operativo (TTM)", "Retorno sobre Capital (ROE)", "Apalancamiento (Debt/Equity)", "Liquidez (Current Ratio)", "Validación de Caja"],
-                    "Métrica Real":
+                    "Métrica Real": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", estado_de, estado_cr, calidad_efectivo],
+                    "Criterio Munger": ["> 40%", "> 20%", "> 15%", "<= 0.50", ">= 1.50", "FCF debe respaldar utilidades"]
+                }
+                st.table(pd.DataFrame(data))
+
+        except Exception as e:
+            st.error(f"Error en el procesamiento de datos: {e}")
