@@ -6,8 +6,8 @@ import time
 # Configuración de página
 st.set_page_config(page_title="Munger Rule Scanner Pro", layout="wide")
 
-st.title("🛡️ Munger's 13 Rules Investment Scanner (Edición Alfa Antisaturación)")
-st.write("Analizador avanzado con sistema de auto-recuperación y reintentos automáticos para el plan gratuito.")
+st.title("🛡️ Munger's 13 Rules Investment Scanner (Edición Alfa Total)")
+st.write("Analizador avanzado con cálculo matemático 100% nativo para Márgenes, Liquidez y Apalancamiento.")
 st.markdown("---")
 
 # =====================================================================
@@ -31,16 +31,13 @@ with col_val:
 
 st.markdown("---")
 
-# Función robusta para hacer llamadas a la API tolerando la saturación
 def consultar_api_con_reintentos(url):
-    for intento in range(3): # Intenta hasta 3 veces antes de rendirse
+    for intento in range(3):
         respuesta = requests.get(url).json()
-        
-        # Si la API nos dice que nos pasamos del límite de velocidad ("Note")
         if "Note" in respuesta or (isinstance(respuesta, dict) and len(respuesta) == 1 and "Information" in respuesta):
             with st.spinner(f"⏳ Servidor saturado. Esperando {15 * (intento + 1)} segundos para liberar canal..."):
                 time.sleep(15 * (intento + 1))
-                continue # Regresa al inicio del bucle e intenta otra vez
+                continue
         return respuesta
     return None
 
@@ -50,44 +47,39 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
         st.stop()
         
     placeholder_status = st.empty()
-    
     with placeholder_status.container():
         st.info(f"🛰️ Conectando con los servidores oficiales para {ticker_input}...")
         
     try:
-        # 1. Datos Generales de Balance y Ratios (OVERVIEW)
+        # 1. Datos Generales (OVERVIEW)
         url_overview = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker_input}&apikey={API_KEY}"
         data_overview = consultar_api_con_reintentos(url_overview)
         
         if not data_overview or "Symbol" not in data_overview:
-            st.error(f"❌ Error: El ticker '{ticker_input}' no responde. La API Key superó el límite global de 500 consultas diarias o el ticker no existe.")
+            st.error(f"❌ Error: El ticker '{ticker_input}' no responde o no existe.")
             st.stop()
 
-        # 2. Estados de Resultados Anuales (INCOME_STATEMENT)
+        # 2. Estado de Resultados (INCOME_STATEMENT)
         url_income = f"https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol={ticker_input}&apikey={API_KEY}"
         data_income = consultar_api_con_reintentos(url_income)
 
-        # 3. Flujos de Caja Históricos (CASH_FLOW)
+        # 3. Flujos de Caja (CASH_FLOW)
         url_cf = f"https://www.alphavantage.co/query?function=CASH_FLOW&symbol={ticker_input}&apikey={API_KEY}"
         data_cf = consultar_api_con_reintentos(url_cf)
+
+        # 4. Balance General (BALANCE_SHEET) -> NUEVO ENDPOINT PARA EVITAR LOS CEROS
+        url_bs = f"https://www.alphavantage.co/query?function=BALANCE_SHEET&symbol={ticker_input}&apikey={API_KEY}"
+        data_bs = consultar_api_con_reintentos(url_bs)
         
-        # Limpiamos el aviso de carga
         placeholder_status.empty()
 
-        # --- RESUMEN DE ACTIVIDAD ---
-        st.subheader(f"🏢 Empresa: {data_overview.get('Name', ticker_input)}")
-        resumen = data_overview.get('Description', "No hay descripción disponible.")
-        with st.expander("Leer descripción del modelo de negocio"):
-            st.write(resumen)
-
-        # --- EXTRACCIÓN SEGURA DE DATOS ---
         def safe_float(val, default=0.0):
             try:
                 return float(val) if val and val != "None" else default
             except:
                 return default
 
-        # --- CÁLCULO MATEMÁTICO PROPIO DE MÁRGENES ---
+        # --- CÁLCULO DE MÁRGENES ---
         gm_actual = 0.0
         om_actual = 0.0
         net_inc = 0.0
@@ -101,19 +93,33 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
             net_inc = safe_float(ultimo_inc.get('netIncome'))
             
             if gp == 0.0 and rev > 0:
-                cor = safe_float(ultimo_inc.get('costOfRevenue'))
-                gp = rev - cor
+                gp = rev - safe_float(ultimo_inc.get('costOfRevenue'))
             
             gm_actual = (gp / rev) if rev > 0 else 0.0
             om_actual = (op_inc / rev) if rev > 0 else 0.0
 
-        # Ratios estructurales
+        # --- CÁLCULO DE APALANCAMIENTO Y LIQUIDEZ CONTABLE (BALANCE SHEET) ---
+        de = 0.0
+        cr = 0.0
+        
+        reportes_bs = data_bs.get('annualReports', []) if data_bs else []
+        if reportes_bs:
+            ultimo_bs = reportes_bs[0]
+            
+            # Liquidez: Activo Corriente / Pasivo Corriente
+            current_assets = safe_float(ultimo_bs.get('totalCurrentAssets'))
+            current_liab = safe_float(ultimo_bs.get('totalCurrentLiabilities'))
+            cr = (current_assets / current_liab) if current_liab > 0 else 0.0
+            
+            # Apalancamiento Estructural: Pasivo Total / Patrimonio Total
+            total_liab = safe_float(ultimo_bs.get('totalLiabilities'))
+            equity = safe_float(ultimo_bs.get('totalShareholderEquity'))
+            de = (total_liab / equity) if equity > 0 else 0.0
+
         roe_actual = safe_float(data_overview.get('ReturnOnEquityTTM'))
-        de = safe_float(data_overview.get('DebtToEquityRatio'))
-        cr = safe_float(data_overview.get('CurrentRatio'))
         price = safe_float(data_overview.get('AnalystTargetPrice'), default=1.0) * 0.85
 
-        # --- REVISIÓN DE CALIDAD DE CAJA (FCF vs NET INCOME) ---
+        # --- REVISIÓN DE CALIDAD DE CAJA ---
         calidad_efectivo = "Datos de caja no disponibles"
         reportes_cf = data_cf.get('annualReports', []) if data_cf else []
         
@@ -134,7 +140,6 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
             elif net_inc > 0 and fcf_calc <= 0:
                 calidad_efectivo = "Alerta: Destruye caja real 🚨"
 
-        # --- LÓGICA DEL MARGEN DE SEGURIDAD ---
         if usar_manual:
             mos = (valor_estimado - price) / valor_estimado if valor_estimado > 0 else 0.0
             fuente_mos = "Manual (Simply Wall St / Análisis propio)"
@@ -142,13 +147,12 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
             mos = 0.20
             fuente_mos = "Basado en objetivos de analistas (Usa ajuste manual para precisión)"
 
-        # --- SISTEMA DE PUNTUACIÓN DE 100 PUNTOS ---
+        # --- SISTEMA DE PUNTUACIÓN ---
         score = 0
         if gm_actual >= 0.40: score += 15
         if om_actual >= 0.20: score += 15
         if roe_actual >= 0.15: score += 10
-        if de <= 0.5 and de > 0: score += 10
-        elif de == 0: score += 10
+        if de <= 0.5 and de >= 0: score += 10
         if cr >= 1.5: score += 10
         if "Excelente" in calidad_efectivo: score += 10
         elif "Aceptable" in calidad_efectivo: score += 5
@@ -167,16 +171,17 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
                 st.warning("⚖️ NEGOCIO RAZONABLE: Revisa balances estructurales.")
             else:
                 st.error("🚨 EVITAR: No pasa los filtros cuantitativos de Munger.")
-            
             st.info(f"**Valoración:** {fuente_mos}")
 
         with c2:
             estado_gm = f"{gm_actual*100:.1f}% (Excelente ✅)" if gm_actual >= 0.40 else f"{gm_actual*100:.1f}% (Bajo ❌)"
             estado_om = f"{om_actual*100:.1f}% (Excelente ✅)" if om_actual >= 0.20 else f"{om_actual*100:.1f}% (Bajo ❌)"
+            estado_de = f"{de:.2f} (Sólido ✅)" if de <= 0.5 else f"{de:.2f} (Apalancado ❌)"
+            estado_cr = f"{cr:.2f} (Líquido ✅)" if cr >= 1.5 else f"{cr:.2f} (Ajustado ⚠️)"
             
             data = {
                 "Filtro Automático": ["Margen Bruto (Anual)", "Margen Operativo (Anual)", "Retorno sobre Capital (ROE)", "Apalancamiento (Debt/Equity)", "Liquidez (Current Ratio)", "Validación de Caja"],
-                "Métrica Real": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", f"{de:.2f}", f"{cr:.2f}", calidad_efectivo],
+                "Métrica Real": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", estado_de, estado_cr, calidad_efectivo],
                 "Criterio Munger": ["> 40%", "> 20%", "> 15%", "<= 0.50", ">= 1.50", "FCF debe respaldar utilidades"]
             }
             st.table(pd.DataFrame(data))
