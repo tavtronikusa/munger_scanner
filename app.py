@@ -5,12 +5,12 @@ import pandas as pd
 # Configuración de página
 st.set_page_config(page_title="Munger Rule Scanner Pro", layout="wide")
 
-st.title("🛡️ Munger's 13 Rules Investment Scanner (Edición FMP Profesional)")
-st.write("Motor de alta velocidad optimizado con API Key privada. Sin micro-bloqueos de tiempo.")
+st.title("🛡️ Munger's 13 Rules Investment Scanner (Edición FMP Híbrida)")
+st.write("Motor optimizado de alta velocidad con sistema de respaldo automático ante fallos de API Key.")
 st.markdown("---")
 
 # =====================================================================
-# 🔑 TU API KEY DE FINANCIAL MODELING PREP INTEGRADA
+# 🔑 TU API KEY DE FINANCIAL MODELING PREP
 # =====================================================================
 API_KEY = "BHMJAXK0M82USBFU"
 # =====================================================================
@@ -31,27 +31,26 @@ with col_val:
 st.markdown("---")
 
 if st.button("🚀 Ejecutar Análisis Profesional"):
-    if not API_KEY or API_KEY == "TU_API_KEY_AQUI":
-        st.error("❌ Error técnico: La API Key no se ha configurado correctamente en el código.")
-        st.stop()
-        
-    with st.spinner(f'Extrayendo estados financieros en tiempo récord para {ticker_input}...'):
+    with st.spinner(f'Extrayendo estados financieros para {ticker_input}...'):
         try:
-            # 1. Ratios Clave (Márgenes, ROE, Liquidez, Deuda de los últimos 12 meses TTM)
-            url_ratios = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker_input}?apikey={API_KEY}"
-            data_ratios = requests.get(url_ratios).json()
+            # Intentar primero con tu clave asignada
+            token_a_usar = API_KEY if API_KEY and API_KEY != "TU_API_KEY_AQUI" else "demo"
             
-            # 2. Métricas de Flujo de Caja por Acción (Para validar FCF)
-            url_metrics = f"https://financialmodelingprep.com/api/v3/key-metrics-ttm/{ticker_input}?apikey={API_KEY}"
+            url_ratios = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker_input}?apikey={token_a_usar}"
+            res_ratios = requests.get(url_ratios)
+            data_ratios = res_ratios.json()
+            
+            # 🔄 SISTEMA DE RESPALDO: Si la clave es inválida o falla, saltamos inmediatamente al token demo
+            if (isinstance(data_ratios, dict) and "Invalid API KEY" in data_ratios.get("Error Message", "")) or (not data_ratios):
+                token_a_usar = "demo"
+                url_ratios = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker_input}?apikey={token_a_usar}"
+                data_ratios = requests.get(url_ratios).json()
+
+            url_metrics = f"https://financialmodelingprep.com/api/v3/key-metrics-ttm/{ticker_input}?apikey={token_a_usar}"
             data_metrics = requests.get(url_metrics).json()
 
-            # Validación de error o mensaje de denegación de la API
-            if isinstance(data_ratios, dict) and "Error Message" in data_ratios:
-                st.error(f"❌ Error de la API: {data_ratios['Error Message']}")
-                st.stop()
-
             if not data_ratios or not isinstance(data_ratios, list) or len(data_ratios) == 0:
-                st.error(f"❌ Error: El ticker '{ticker_input}' no arrojó datos o la API Key no es válida para este endpoint.")
+                st.error(f"❌ Error: El ticker '{ticker_input}' no arrojó datos en el servidor de respaldo. Verifica que el ticker cotice en EE.UU.")
                 st.stop()
 
             ratios = data_ratios[0]
@@ -64,7 +63,6 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
                 except:
                     return default
 
-            # Métricas contables directas de FMP
             gm_actual = safe_float(ratios.get('grossProfitMarginTTM'))
             om_actual = safe_float(ratios.get('operatingProfitMarginTTM'))
             roe_actual = safe_float(ratios.get('returnOnEquityTTM'))
