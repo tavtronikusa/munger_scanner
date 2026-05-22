@@ -5,8 +5,8 @@ import pandas as pd
 # Configuración de página
 st.set_page_config(page_title="Munger Rule Scanner Pro", layout="wide")
 
-st.title("🛡️ Munger's 13 Rules Investment Scanner (Edición Alfa)")
-st.write("Analizador avanzado de alta precisión impulsado por Alpha Vantage. Inmune a bloqueos de Yahoo.")
+st.title("🛡️ Munger's 13 Rules Investment Scanner (Edición Alfa Corregida)")
+st.write("Analizador avanzado de alta precisión con cálculo matemático nativo para evitar errores de API.")
 st.markdown("---")
 
 # =====================================================================
@@ -32,28 +32,28 @@ st.markdown("---")
 
 if st.button("🚀 Ejecutar Análisis Profesional"):
     if not API_KEY or API_KEY == "TU_ALPHA_VANTAGE_KEY_AQUI":
-        st.error("❌ Error técnico: La API Key no se ha configurado correctamente en el código.")
+        st.error("❌ Error técnico: La API Key no se ha configurado correctamente.")
         st.stop()
         
     with st.spinner(f'Analizando balances financieros oficiales de {ticker_input}...'):
         try:
-            # 1. Petición de Datos de Resumen y Ratios (OVERVIEW)
+            # 1. Datos Generales de Balance y Ratios (OVERVIEW)
             url_overview = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker_input}&apikey={API_KEY}"
             data_overview = requests.get(url_overview).json()
             
-            if not data_overview:
-                st.error("❌ Error: No se recibió respuesta del servidor. Intenta de nuevo.")
-                st.stop()
-                
             if "Note" in data_overview:
-                st.error("⚠️ Límite de la API alcanzado (5 consultas por minuto). Espera 60 segundos y vuelve a presionar el botón.")
+                st.error("⚠️ Límite de la API alcanzado (5 consultas por minuto). Espera 60 segundos.")
                 st.stop()
                 
-            if "Symbol" not in data_overview:
-                st.error(f"❌ Error: El ticker '{ticker_input}' no fue encontrado o la API Key es inválida.")
+            if not data_overview or "Symbol" not in data_overview:
+                st.error(f"❌ Error: El ticker '{ticker_input}' no fue encontrado o la API Key está saturada.")
                 st.stop()
 
-            # 2. Petición de Flujos de Caja Históricos (CASH_FLOW)
+            # 2. Estados de Resultados Anuales (INCOME_STATEMENT) -> Para calcular márgenes reales
+            url_income = f"https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol={ticker_input}&apikey={API_KEY}"
+            data_income = requests.get(url_income).json()
+
+            # 3. Flujos de Caja Históricos (CASH_FLOW)
             url_cf = f"https://www.alphavantage.co/query?function=CASH_FLOW&symbol={ticker_input}&apikey={API_KEY}"
             data_cf = requests.get(url_cf).json()
 
@@ -63,20 +63,40 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
             with st.expander("Leer descripción del modelo de negocio"):
                 st.write(resumen)
 
-            # --- EXTRACCIÓN SEGURA DE MÉTRICAS ---
+            # --- EXTRACCIÓN SEGURA DE DATOS ---
             def safe_float(val, default=0.0):
                 try:
                     return float(val) if val and val != "None" else default
                 except:
                     return default
 
-            # Alpha Vantage entrega los márgenes y ratios listos en formato string
-            gm_actual = safe_float(data_overview.get('GrossMarginTTM'))
-            om_actual = safe_float(data_overview.get('OperatingMarginTTM'))
+            # --- CÁLCULO MATEMÁTICO PROPIO DE MÁRGENES (INCOME STATEMENT) ---
+            gm_actual = 0.0
+            om_actual = 0.0
+            net_inc = 0.0
+            
+            reportes_inc = data_income.get('annualReports', [])
+            if reportes_inc:
+                ultimo_inc = reportes_inc[0]
+                rev = safe_float(ultimo_inc.get('totalRevenue'))
+                gp = safe_float(ultimo_inc.get('grossProfit'))
+                op_inc = safe_float(ultimo_inc.get('operatingIncome'))
+                net_inc = safe_float(ultimo_inc.get('netIncome'))
+                
+                # Si la API no dio el Gross Profit directo, lo calculamos: Revenue - CostOfRevenue
+                if gp == 0.0 and rev > 0:
+                    cor = safe_float(ultimo_inc.get('costOfRevenue'))
+                    gp = rev - cor
+                
+                # Matemáticas puras en el código
+                gm_actual = (gp / rev) if rev > 0 else 0.0
+                om_actual = (op_inc / rev) if rev > 0 else 0.0
+
+            # Ratios del balance general
             roe_actual = safe_float(data_overview.get('ReturnOnEquityTTM'))
             de = safe_float(data_overview.get('DebtToEquityRatio'))
             cr = safe_float(data_overview.get('CurrentRatio'))
-            price = safe_float(data_overview.get('AnalystTargetPrice'), default=1.0) * 0.85 # Estimado base si no hay manual
+            price = safe_float(data_overview.get('AnalystTargetPrice'), default=1.0) * 0.85
 
             # --- REVISIÓN DE CALIDAD DE CAJA (FCF vs NET INCOME) ---
             calidad_efectivo = "Datos históricos de caja no disponibles"
@@ -84,11 +104,9 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
             
             if reportes_cf:
                 ultimo_cf = reportes_cf[0]
-                # FCF = Operating Cashflow - Capital Expenditures
                 ops_cash = safe_float(ultimo_cf.get('operatingCashflow'))
                 capex = abs(safe_float(ultimo_cf.get('capitalExpenditures')))
                 fcf_calc = ops_cash - capex
-                net_inc = safe_float(ultimo_cf.get('netIncome'))
                 
                 if net_inc > 0 and fcf_calc > 0:
                     ratio_caja = fcf_calc / net_inc
@@ -106,7 +124,7 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
                 mos = (valor_estimado - price) / valor_estimado if valor_estimado > 0 else 0.0
                 fuente_mos = "Manual (Simply Wall St / Análisis propio)"
             else:
-                mos = 0.20 # Margen base por defecto usando targets
+                mos = 0.20
                 fuente_mos = "Basado en objetivos de analistas (Usa ajuste manual para precisión)"
 
             # --- SISTEMA DE PUNTUACIÓN DE 100 PUNTOS ---
@@ -142,7 +160,7 @@ if st.button("🚀 Ejecutar Análisis Profesional"):
                 estado_om = f"{om_actual*100:.1f}% (Excelente ✅)" if om_actual >= 0.20 else f"{om_actual*100:.1f}% (Bajo ❌)"
                 
                 data = {
-                    "Filtro Automático": ["Margen Bruto (TTM)", "Margen Operativo (TTM)", "Retorno sobre Capital (ROE)", "Apalancamiento (Debt/Equity)", "Liquidez (Current Ratio)", "Validación de Caja"],
+                    "Filtro Automático": ["Margen Bruto (Anual)", "Margen Operativo (Anual)", "Retorno sobre Capital (ROE)", "Apalancamiento (Debt/Equity)", "Liquidez (Current Ratio)", "Validación de Caja"],
                     "Métrica Real": [estado_gm, estado_om, f"{roe_actual*100:.1f}%", f"{de:.2f}", f"{cr:.2f}", calidad_efectivo],
                     "Criterio Munger": ["> 40%", "> 20%", "> 15%", "<= 0.50", ">= 1.50", "FCF debe respaldar utilidades"]
                 }
